@@ -81,8 +81,20 @@ function renderAuthHtml() {
       text-align: center;
       box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
     }
-    .icon { font-size: 44px; margin-bottom: 12px; }
-    h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .icon-badge {
+      width: 68px;
+      height: 68px;
+      margin: 0 auto 16px auto;
+      border-radius: 50%;
+      background: rgba(99, 102, 241, 0.15);
+      border: 1.5px solid rgba(99, 102, 241, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+      box-shadow: 0 0 24px rgba(99, 102, 241, 0.25);
+    }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.3px; color: #fff; }
     p { font-size: 13px; color: #9ca3af; margin-bottom: 24px; line-height: 1.5; }
     .input-wrap { margin-bottom: 16px; text-align: left; }
     input {
@@ -129,17 +141,17 @@ function renderAuthHtml() {
 </head>
 <body>
   <div class="auth-card">
-    <div class="icon">🔒</div>
-    <h1>私密影音空间</h1>
-    <p>该站点仅限授权人员使用，请输入访问口令解锁。</p>
+    <div class="icon-badge">🎬</div>
+    <h1>【科学技术私享影会】</h1>
+    <p>内部交流专线 · 请输入通行口令接入系统</p>
     
     <div class="err-msg" id="errMsg"></div>
 
     <form id="authForm">
       <div class="input-wrap">
-        <input type="password" id="passInput" placeholder="输入访问口令" autofocus required autocomplete="current-password" />
+        <input type="password" id="passInput" placeholder="请输入通行口令" autofocus required autocomplete="current-password" />
       </div>
-      <button type="submit" id="submitBtn">解锁进入</button>
+      <button type="submit" id="submitBtn">验证并进入</button>
     </form>
 
     <div class="tip">认证成功后 30 天内免重复输入</div>
