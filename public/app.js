@@ -382,6 +382,51 @@ function playCurrent() {
   saveHistoryItem(state.currentMovie, currentSource.sourceName, ep.name, ep.url);
 }
 
+function cleanM3u8Ads(text) {
+  if (!text || typeof text !== 'string') return text;
+  if (!text.includes('#EXTM3U')) return text;
+
+  const lines = text.split('\n');
+  const cleaned = [];
+  let inAdBlock = false;
+  let seenAdStart = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    // 匹配主流切片系统（如 PPVOD）中插广告标记
+    if (/ppvod-ad-injected|advertisement|#\s*ad\b|guanggao/i.test(line)) {
+      inAdBlock = true;
+      seenAdStart = false;
+      continue;
+    }
+
+    if (inAdBlock) {
+      if (line === '#EXT-X-DISCONTINUITY') {
+        if (!seenAdStart) {
+          seenAdStart = true;
+        } else {
+          inAdBlock = false;
+          seenAdStart = false;
+        }
+      }
+      continue;
+    }
+
+    // 单行中插广告切片过滤
+    if (/(\/ad\/|_ad_|\/guanggao\/|ad\.ts)/i.test(line) && !line.startsWith('#')) {
+      if (cleaned.length > 0 && cleaned[cleaned.length - 1].trim().startsWith('#EXTINF')) {
+        cleaned.pop();
+      }
+      continue;
+    }
+
+    cleaned.push(lines[i]);
+  }
+
+  return cleaned.join('\n');
+}
+
 function initArtPlayer(playUrl, title) {
   if (state.hls) {
     state.hls.destroy();
@@ -406,7 +451,23 @@ function initArtPlayer(playUrl, title) {
             const hls = new window.Hls({
               enableWorker: true,
               lowLatencyMode: true,
-              backBufferLength: 60
+              backBufferLength: 60,
+              pLoader: class extends window.Hls.DefaultConfig.loader {
+                constructor(config) {
+                  super(config);
+                  const load = this.load.bind(this);
+                  this.load = function (context, config, callbacks) {
+                    const onSuccess = callbacks.onSuccess;
+                    callbacks.onSuccess = function (response, stats, context, networkDetails) {
+                      if (response && typeof response.data === 'string') {
+                        response.data = cleanM3u8Ads(response.data);
+                      }
+                      onSuccess(response, stats, context, networkDetails);
+                    };
+                    load(context, config, callbacks);
+                  };
+                }
+              }
             });
             state.hls = hls;
 

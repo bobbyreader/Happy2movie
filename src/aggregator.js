@@ -225,6 +225,16 @@ export async function searchAggregated(keyword, sources = DEFAULT_SOURCES) {
 
   const groupedList = Array.from(groupedMap.values());
 
+  // 内部源按纯净度优先级升序排列（纯净无中插源优先）
+  const sourcePriorityMap = new Map(sources.map((s, idx) => [s.id, s.priority ?? idx]));
+  for (const group of groupedList) {
+    group.sources.sort((a, b) => {
+      const pA = sourcePriorityMap.get(a.sourceId) ?? 999;
+      const pB = sourcePriorityMap.get(b.sourceId) ?? 999;
+      return pA - pB;
+    });
+  }
+
   // 智能排序：精确匹配优先，多源优先
   const queryLower = trimmed.toLowerCase();
   groupedList.sort((a, b) => {
