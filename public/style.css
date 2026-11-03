@@ -508,7 +508,14 @@ body {
   aspect-ratio: 16/9;
   background: #000;
   border-radius: var(--radius-md);
-  overflow: hidden;
+  /* 不能 hidden：播放器右下角的设置/画中画弹层是向上浮出的，
+     外层裁切会导致弹层被切掉、按钮点上去没反应 */
+  overflow: visible;
+}
+
+/* 裁切效果改由播放器自身圆角承接 */
+.player-art-box .art-video-player {
+  border-radius: var(--radius-md);
 }
 
 #artplayer {
@@ -524,18 +531,24 @@ body {
   flex-direction: column;
   gap: 16px;
   border: 1px solid var(--border-color);
+  /* 高度与左侧播放器对齐，超出部分由内部选集列表自己滚动 */
+  height: 100%;
+  min-height: 360px;
   max-height: 540px;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .panel-block {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex-shrink: 0;
 }
 
+/* 选集区块吃掉剩余空间，min-height:0 让内部滚动容器能正常收缩 */
 .panel-block.flex-1 {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .block-title {
@@ -586,22 +599,42 @@ body {
   font-weight: 600;
 }
 
+/* 选集网格：只负责排版，高度由 .episodes-list 统一滚动。
+   注意别在这里再加 max-height / overflow —— 网格行高会被压扁成内容高度，
+   按钮就挤成一条条细线了 */
 .episodes-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  /* auto-rows 固定为按钮高度，行高不会再被压缩 */
+  grid-auto-rows: minmax(30px, auto);
   gap: 8px;
-  max-height: 260px;
+  align-content: start;
+}
+
+/* 选集滚动容器：固定可视高度，内部整体滚动，
+   这样每一集都能保持完整高度，不会被挤压 */
+.episodes-list {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 4px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .episode-btn {
   background: #1a202c;
   border: 1px solid #2d3748;
   color: var(--text-sub);
-  padding: 7px 4px;
+  padding: 6px 6px;
   border-radius: 6px;
   font-size: 12px;
+  line-height: 1.2;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
   text-align: center;
   cursor: pointer;
   white-space: nowrap;
@@ -803,8 +836,15 @@ body {
   .player-main-grid {
     grid-template-columns: 1fr;
   }
+  /* 小屏下控制台改为上下堆叠，不再跟随播放器高度：
+     给选集列表留足可视高度，超出部分内部滚动 */
   .player-controls-panel {
-    max-height: 340px;
+    height: auto;
+    min-height: 0;
+    max-height: 460px;
+  }
+  .episodes-list {
+    min-height: 190px;
   }
 }
 
