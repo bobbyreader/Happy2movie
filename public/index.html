@@ -2,8 +2,14 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="referrer" content="no-referrer">
+  <!-- iOS Safari 固定到主屏幕 (PWA / Standalone) 专项优化 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Happy2movie">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/favicon.svg">
   <title>Happy2movie - 聚合影视播放</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/style.css">
@@ -87,8 +93,11 @@
             <span id="nowPlayingEp" class="now-playing-ep"></span>
           </div>
           <div class="player-header-right">
+            <button id="pipBtn" class="pip-btn" title="点击开启悬浮画中画（支持切到桌面悬浮播放）">
+              📺 悬浮画中画
+            </button>
             <span class="mode-badge" title="浏览器直连解码，无广告无中转">
-              ⚡ 纯净直连秒播
+              ⚡ 纯净秒播
             </span>
           </div>
         </div>

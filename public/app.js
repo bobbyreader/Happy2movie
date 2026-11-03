@@ -25,6 +25,7 @@ const sourcePills = document.getElementById('sourcePills');
 const playerSection = document.getElementById('playerSection');
 const catalogSection = document.getElementById('catalogSection');
 const backBtn = document.getElementById('backBtn');
+const pipBtn = document.getElementById('pipBtn');
 const nowPlayingTitle = document.getElementById('nowPlayingTitle');
 const nowPlayingEp = document.getElementById('nowPlayingEp');
 const sourceSelector = document.getElementById('sourceSelector');
@@ -427,6 +428,59 @@ function cleanM3u8Ads(text) {
   return cleaned.join('\n');
 }
 
+// 检测 iOS 设备 (iPhone, iPad, iPod 及 iPadOS)
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// 强制注入 iOS 画中画 (PiP) 与切到后台自动悬浮窗的核心属性
+function setupVideoPip(video) {
+  if (!video) return;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.setAttribute('x-webkit-airplay', 'allow');
+  video.setAttribute('autopictureinpicture', '');
+  video.setAttribute('autoPictureInPicture', 'true');
+  video.disablePictureInPicture = false;
+}
+
+// 全局画中画切换控制器（支持 iOS 原生 PresentationMode 与 W3C 标准 PiP）
+async function togglePictureInPicture() {
+  const video = state.art?.template?.$video || state.art?.video;
+  if (!video) return;
+
+  setupVideoPip(video);
+
+  try {
+    // 1. 优先调用 iOS / WebKit 原生画中画 PresentationMode
+    if (video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function') {
+      if (video.webkitPresentationMode === 'picture-in-picture') {
+        video.webkitSetPresentationMode('inline');
+      } else {
+        video.webkitSetPresentationMode('picture-in-picture');
+      }
+      return;
+    }
+
+    // 2. W3C 标准 Picture-in-Picture API
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture();
+    } else if (document.pictureInPictureEnabled && video.requestPictureInPicture) {
+      await video.requestPictureInPicture();
+    } else if (state.art && typeof state.art.pip === 'boolean') {
+      state.art.pip = !state.art.pip;
+    } else {
+      if (state.art) state.art.notice.show = '当前设备或浏览器暂不支持画中画悬浮';
+    }
+  } catch (err) {
+    console.warn('PiP error:', err);
+    if (video.webkitSetPresentationMode) {
+      try {
+        video.webkitSetPresentationMode('picture-in-picture');
+      } catch (e2) {}
+    }
+  }
+}
+
 function initArtPlayer(playUrl, title) {
   if (state.hls) {
     state.hls.destroy();
@@ -447,6 +501,16 @@ function initArtPlayer(playUrl, title) {
       type: isM3U8 ? 'm3u8' : 'auto',
       customType: {
         m3u8: function (video, url, art) {
+          setupVideoPip(video);
+
+          // 核心优化：在 iOS（Safari 及固定到 iPhone 主屏幕的 PWA）上，
+          // 必须直接使用苹果原生媒体解码管道 (video.src = url)；
+          // 如果被 Hls.js 接管，iOS 系统级画中画浮窗和上滑回桌面自动画中画会彻底失效！
+          if (isIOS && video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = url;
+            return;
+          }
+
           if (window.Hls && window.Hls.isSupported()) {
             const hls = new window.Hls({
               enableWorker: true,
@@ -516,7 +580,18 @@ function initArtPlayer(playUrl, title) {
       mutex: true,
       backdrop: true,
       playsInline: true,
-      airplay: true
+      airplay: true,
+      controls: [
+        {
+          name: 'pip-toggle',
+          position: 'right',
+          html: '<span style="display:flex;align-items:center;font-size:15px;cursor:pointer;padding:0 4px;" title="悬浮画中画">📺</span>',
+          tooltip: '画中画',
+          click: function () {
+            togglePictureInPicture();
+          }
+        }
+      ]
     });
 
     state.art.on('video:ended', () => {
@@ -531,6 +606,31 @@ function initArtPlayer(playUrl, title) {
     });
 
     state.art.on('ready', () => {
+      const $video = state.art?.template?.$video;
+      setupVideoPip($video);
+
+      if ($video) {
+        $video.addEventListener('webkitpresentationmodechanged', () => {
+          const isPip = $video.webkitPresentationMode === 'picture-in-picture';
+          if (pipBtn) {
+            pipBtn.classList.toggle('active', isPip);
+            pipBtn.innerHTML = isPip ? '✕ 退出画中画' : '📺 悬浮画中画';
+          }
+        });
+        $video.addEventListener('enterpictureinpicture', () => {
+          if (pipBtn) {
+            pipBtn.classList.add('active');
+            pipBtn.innerHTML = '✕ 退出画中画';
+          }
+        });
+        $video.addEventListener('leavepictureinpicture', () => {
+          if (pipBtn) {
+            pipBtn.classList.remove('active');
+            pipBtn.innerHTML = '📺 悬浮画中画';
+          }
+        });
+      }
+
       state.art.play().catch(() => {});
     });
   } catch (err) {
@@ -583,6 +683,13 @@ backBtn.addEventListener('click', () => {
   playerSection.style.display = 'none';
   if (state.art) state.art.pause();
 });
+
+// 画中画按钮手动触发
+if (pipBtn) {
+  pipBtn.addEventListener('click', () => {
+    togglePictureInPicture();
+  });
+}
 
 // 历史记录抽屉
 historyToggleBtn.addEventListener('click', () => {
