@@ -444,37 +444,53 @@ function setupVideoPip(video) {
   video.disablePictureInPicture = false;
 }
 
-// 全局全屏控制器（针对 iPhone / Safari / Android / PC 深度兼容）
+// 全局全屏控制器（优先复用 Artplayer 内置全屏，自带状态同步与播放器样式）
 function toggleFullscreen() {
   const art = state.art;
   const video = art?.template?.$video || art?.video;
-  if (!video) return;
+  if (!art || !video) return;
 
-  // 1. iPhone 移动端调用 webkitEnterFullscreen (iOS 手机唯一真正的系统全屏模式，自带原生画中画与系统手势)
-  if (typeof video.webkitEnterFullscreen === 'function' && (isIOS || !document.fullscreenEnabled)) {
+  // 1. iPhone / iPad 走 webkitEnterFullscreen（iOS 唯一真正的系统级全屏，带原生手势）
+  //    注意：video 元素只有 hasAttribute('webkitSupportsFullscreen') 这个标记属性，
+  //    旧代码用 typeof video.webkitEnterFullscreen === 'function' 判断在 Safari 下恒为假，导致按钮点了没反应
+  if (isIOS || (video.webkitSupportsFullscreen && !document.fullscreenEnabled)) {
+    const requestVideoFullscreen = () => {
+      if (typeof video.webkitEnterFullscreen === 'function') {
+        video.webkitEnterFullscreen();
+      } else if (video.webkitDisplayingFullscreen && video.webkitExitFullscreen) {
+        video.webkitExitFullscreen();
+      }
+    };
     try {
-      video.webkitEnterFullscreen();
+      if (video.webkitDisplayingFullscreen) {
+        video.webkitExitFullscreen?.();
+      } else {
+        requestVideoFullscreen();
+      }
       return;
     } catch (e) {
       console.warn('webkitEnterFullscreen error:', e);
     }
   }
 
-  // 2. 网页全屏（无黑边撑满窗口）
-  if (art && art.fullscreenWeb !== undefined) {
+  // 2. PC / Android：交给 Artplayer 内置全屏（支持标准 Fullscreen API 与 Safari 的 webkit 模式）
+  try {
+    art.fullscreen = !art.fullscreen;
+    return;
+  } catch (e) {
+    console.warn('art.fullscreen error:', e);
+  }
+
+  // 3. 兜底：网页全屏 / 原生 requestFullscreen
+  if (art.fullscreenWeb !== undefined) {
     art.fullscreenWeb = !art.fullscreenWeb;
     return;
   }
-
-  // 3. W3C 标准全屏
+  const $player = art.template.$player;
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
-  } else if (art?.template?.$player?.requestFullscreen) {
-    art.template.$player.requestFullscreen().catch(() => {
-      if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
-    });
-  } else if (art && art.fullscreen !== undefined) {
-    art.fullscreen = !art.fullscreen;
+  } else if ($player?.requestFullscreen) {
+    $player.requestFullscreen().catch(() => {});
   }
 }
 
@@ -486,32 +502,42 @@ async function togglePictureInPicture() {
 
   setupVideoPip(video);
 
-  try {
-    // 1. 优先调用 iOS / WebKit 原生画中画 PresentationMode
-    if (typeof video.webkitSetPresentationMode === 'function') {
-      const currentMode = video.webkitPresentationMode;
-      const targetMode = currentMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture';
+  // 1. iOS / WebKit 原生画中画：必须满足用户手势 + 视频已在播放，否则静默失败
+  if (typeof video.webkitSetPresentationMode === 'function') {
+    const currentMode = video.webkitPresentationMode;
+    const targetMode = currentMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture';
+    try {
+      if (targetMode === 'picture-in-picture' && video.paused) {
+        video.play().catch(() => {});
+      }
       video.webkitSetPresentationMode(targetMode);
       return;
+    } catch (e) {
+      console.warn('webkitSetPresentationMode error:', e);
+      if (art?.notice) art.notice.show = '当前浏览器不支持悬浮画中画，请使用系统自带的画中画按钮';
+      return;
     }
+  }
 
-    // 2. W3C 标准 Picture-in-Picture API
+  // 2. W3C 标准 Picture-in-Picture API（Chrome / Edge）
+  try {
     if (document.pictureInPictureElement) {
       await document.exitPictureInPicture();
-    } else if (document.pictureInPictureEnabled && video.requestPictureInPicture) {
-      await video.requestPictureInPicture();
-    } else if (art && typeof art.pip === 'boolean') {
-      art.pip = !art.pip;
-    } else {
-      if (art && art.notice) art.notice.show = '当前设备或浏览器暂不支持画中画悬浮';
+      return;
     }
+    if (document.pictureInPictureEnabled && typeof video.requestPictureInPicture === 'function') {
+      if (video.readyState === 0) {
+        if (art?.notice) art.notice.show = '视频还在加载，稍后再点一次即可开启画中画';
+        return;
+      }
+      if (video.paused) video.play().catch(() => {});
+      await video.requestPictureInPicture();
+      return;
+    }
+    if (art?.notice) art.notice.show = '当前浏览器不支持画中画，请换用 Chrome / Edge / Safari';
   } catch (err) {
     console.warn('PiP error:', err);
-    if (video.webkitSetPresentationMode) {
-      try {
-        video.webkitSetPresentationMode('picture-in-picture');
-      } catch (e2) {}
-    }
+    if (art?.notice) art.notice.show = '画中画开启失败，请检查浏览器权限设置';
   }
 }
 
@@ -638,24 +664,20 @@ function initArtPlayer(playUrl, title) {
       backdrop: true,
       playsInline: true,
       airplay: true,
-      controls: [
+      // 画中画 / 全屏直接复用 Artplayer 自带的控制条按钮（与其它按钮同排，位于播放窗口右下角），
+      // 这里只接管点击后的行为，不再额外插入重复的自定义按钮
+      settings: [
         {
-          name: 'custom-pip',
-          position: 'right',
-          index: 60,
-          html: '<span style="display:flex;align-items:center;font-size:16px;cursor:pointer;padding:0 6px;" title="悬浮画中画">📺</span>',
-          tooltip: '画中画',
-          click: function () {
+          html: '悬浮画中画',
+          tooltip: '切到桌面小窗播放',
+          onClick: function () {
             togglePictureInPicture();
           }
         },
         {
-          name: 'custom-fullscreen',
-          position: 'right',
-          index: 70,
-          html: '<span style="display:flex;align-items:center;font-size:17px;cursor:pointer;padding:0 6px;" title="全屏播放">⛶</span>',
-          tooltip: '全屏',
-          click: function () {
+          html: '全屏播放',
+          tooltip: '撑满整个屏幕',
+          onClick: function () {
             toggleFullscreen();
           }
         }
@@ -677,31 +699,26 @@ function initArtPlayer(playUrl, title) {
       const $video = state.art?.template?.$video;
       setupVideoPip($video);
 
-      // 双击视频画面全屏
-      state.art.on('dblclick', () => {
-        toggleFullscreen();
+      // 注意：双击画面全屏由 Artplayer 内置逻辑处理（DBCLICK_FULLSCREEN），
+      // 这里不要重复绑定 'dblclick' -> 全屏，否则一次双击会切换两次、互相抵消
+      const art = state.art;
+      art.on('fullscreen', (isFullscreen) => {
+        const btn = art.template?.$player?.querySelector('.art-control-fullscreen');
+        if (btn) btn.setAttribute('title', isFullscreen ? '退出全屏' : '全屏播放');
       });
 
-      if ($video) {
-        $video.addEventListener('webkitpresentationmodechanged', () => {
-          const isPip = $video.webkitPresentationMode === 'picture-in-picture';
-          if (pipBtn) {
-            pipBtn.classList.toggle('active', isPip);
-            pipBtn.innerHTML = isPip ? '✕ 退出画中画' : '📺 悬浮画中画';
-          }
-        });
-        $video.addEventListener('enterpictureinpicture', () => {
-          if (pipBtn) {
-            pipBtn.classList.add('active');
-            pipBtn.innerHTML = '✕ 退出画中画';
-          }
-        });
-        $video.addEventListener('leavepictureinpicture', () => {
-          if (pipBtn) {
-            pipBtn.classList.remove('active');
-            pipBtn.innerHTML = '📺 悬浮画中画';
-          }
-        });
+      if (pipBtn) {
+        const syncPipBtn = (isPip) => {
+          pipBtn.classList.toggle('active', isPip);
+          pipBtn.innerHTML = isPip ? '✕ 退出画中画' : '📺 悬浮画中画';
+        };
+        if ($video) {
+          $video.addEventListener('webkitpresentationmodechanged', () => {
+            syncPipBtn($video.webkitPresentationMode === 'picture-in-picture');
+          });
+          $video.addEventListener('enterpictureinpicture', () => syncPipBtn(true));
+          $video.addEventListener('leavepictureinpicture', () => syncPipBtn(false));
+        }
       }
 
       state.art.play().catch(() => {});
